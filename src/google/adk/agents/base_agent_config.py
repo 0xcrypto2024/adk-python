@@ -79,3 +79,13 @@ Example:
       default=None,
       description='Optional. The after_agent_callbacks of the agent.',
   )
+
+  enable_erc8004_registration: bool = Field(
+      default=False,
+      description='Optional. Whether to enable ERC8004 registration for the agent.',
+  )
+
+  mock_registration: bool = Field(
+      default=False,
+      description='Optional. Whether to mock the ERC8004 registration process.',
+  )

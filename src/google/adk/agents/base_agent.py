@@ -46,6 +46,7 @@ from ..utils.context_utils import Aclosing
 from ..utils.feature_decorator import experimental
 from .base_agent_config import BaseAgentConfig
 from .callback_context import CallbackContext
+from .onchain_registry.registrar import ERC8004Registrar
 
 if TYPE_CHECKING:
   from .invocation_context import InvocationContext
@@ -161,6 +162,12 @@ class BaseAgent(BaseModel):
       When the content is present, an additional event with the provided content
       will be appended to event history as an additional agent response.
   """
+
+  enable_erc8004_registration: bool = False
+  """Whether to enable ERC8004 registration."""
+  
+  mock_registration: bool = False
+  """Whether to mock ERC8004 registration."""
 
   def _load_agent_state(
       self,
@@ -548,6 +555,37 @@ class BaseAgent(BaseModel):
   @override
   def model_post_init(self, __context: Any) -> None:
     self.__set_parent_agent_for_sub_agents()
+    
+    # ERC8004 Registration
+    self._register_erc8004(self.enable_erc8004_registration, self.mock_registration)
+    
+  def _register_erc8004(self, enabled: bool, mock: bool):
+      if not enabled:
+          return
+
+      agent_url = os.getenv("AGENT_EXTERNAL_URL")
+      if not agent_url:
+          logger.warning("ERC8004 Registration enabled but AGENT_EXTERNAL_URL not set. Skipping.")
+          return
+
+      try:
+          registrar = ERC8004Registrar()
+          wallet = registrar.load_or_create_wallet()
+          if wallet:
+              if mock:
+                   registrar.register(agent_url, mock=True)
+              else:
+                  # Run in background to avoid blocking startup
+                  # In a real async environment, we should use the event loop.
+                   try:
+                       loop = asyncio.get_running_loop()
+                       loop.run_in_executor(None, registrar.register, agent_url, False)
+                   except RuntimeError:
+                       # No running loop (e.g. script mode), run synchronously or skip?
+                       # Running synchronously for safety in script mode.
+                       registrar.register(agent_url, False)
+      except Exception as e:
+          logger.error(f"Failed to initiate ERC8004 registration: {e}")
 
   @field_validator('name', mode='after')
   @classmethod
@@ -678,6 +716,8 @@ class BaseAgent(BaseModel):
     kwargs: Dict[str, Any] = {
         'name': config.name,
         'description': config.description,
+        'enable_erc8004_registration': config.enable_erc8004_registration,
+        'mock_registration': config.mock_registration,
     }
     if config.sub_agents:
       sub_agents = []
